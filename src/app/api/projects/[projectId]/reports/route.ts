@@ -13,6 +13,8 @@ type ProjectType = "stock_check" | "loading_check";
 type ReportRow = {
   id: string;
   client_reference: string;
+  urn: string | null;
+  package_number: string | null;
   system_barcode_id: string;
   item_name: string | null;
   title: string | null;
@@ -25,6 +27,8 @@ type ReportRow = {
   packages: number | null;
   volume_cbm: number | null;
   location: string | null;
+  italy_location: string | null;
+  uk_location: string | null;
   notes: string | null;
   status: "not_scanned" | "scanned";
   scanned_at: string | null;
@@ -116,6 +120,8 @@ async function fetchReportData(projectId: string, type: ReportType) {
       [
         "id",
         "client_reference",
+        "urn",
+        "package_number",
         "system_barcode_id",
         "item_name",
         "title",
@@ -128,6 +134,8 @@ async function fetchReportData(projectId: string, type: ReportType) {
         "packages",
         "volume_cbm",
         "location",
+        "italy_location",
+        "uk_location",
         "notes",
         "status",
         "scanned_at",
@@ -169,6 +177,8 @@ async function fetchReportData(projectId: string, type: ReportType) {
     return {
       id: String(source.id ?? ""),
       client_reference: String(source.client_reference ?? ""),
+      urn: (source.urn as string | null) ?? null,
+      package_number: (source.package_number as string | null) ?? null,
       system_barcode_id: String(source.system_barcode_id ?? ""),
       item_name: (source.item_name as string | null) ?? null,
       title: (source.title as string | null) ?? null,
@@ -181,6 +191,8 @@ async function fetchReportData(projectId: string, type: ReportType) {
       packages: toNumberOrNull(source.packages),
       volume_cbm: toNumberOrNull(source.volume_cbm),
       location: (source.location as string | null) ?? null,
+      italy_location: (source.italy_location as string | null) ?? null,
+      uk_location: (source.uk_location as string | null) ?? null,
       notes: (source.notes as string | null) ?? null,
       status: toItemStatus(source.status),
       scanned_at: (source.scanned_at as string | null) ?? null,
@@ -240,6 +252,8 @@ function toFlatRows(items: ReportRow[], projectType: ProjectType, actionHistoryM
 
     return {
       client_reference: item.client_reference,
+      urn: item.urn ?? "",
+      package_number: item.package_number ?? "",
       system_barcode_id: item.system_barcode_id,
       item_name: item.item_name ?? "",
       title: item.title ?? "",
@@ -251,7 +265,7 @@ function toFlatRows(items: ReportRow[], projectType: ProjectType, actionHistoryM
       height: item.height ?? "",
       weight: item.weight ?? "",
       volume_cbm: item.volume_cbm ?? "",
-      location: item.location ?? "",
+      location: item.location ?? item.italy_location ?? item.uk_location ?? "",
       notes: item.notes ?? "",
       final_status: operationalStatus(item.status, projectType),
       loaded_timestamp: item.scanned_at ? new Date(item.scanned_at).toISOString() : "",
@@ -330,7 +344,7 @@ async function buildPdfBuffer(
         .fontSize(9)
         .font("Helvetica")
         .text(
-          `${index + 1}. ${row.client_reference} | ${row.item_name || "-"} | ${row.title || "-"} | Qty:${row.quantity || "-"} | Pkg:${row.packages || "-"} | Dim:${row.dimensions || "-"} | W:${row.weight || "-"} | Loc:${row.location || "-"} | Loaded:${row.loaded_timestamp || "-"}`,
+          `${index + 1}. URN:${row.urn || "-"} | Ref:${row.client_reference} | PkgNo:${row.package_number || "-"} | ${row.item_name || "-"} | ${row.title || "-"} | Qty:${row.quantity || "-"} | Pkg:${row.packages || "-"} | Dim:${row.dimensions || "-"} | W:${row.weight || "-"} | Loc:${row.location || "-"} | Loaded:${row.loaded_timestamp || "-"}`,
           { width: doc.page.width - 64 },
         );
     } else {
@@ -338,7 +352,7 @@ async function buildPdfBuffer(
         .fontSize(9)
         .font("Helvetica")
         .text(
-          `${index + 1}. ${row.client_reference} | ${row.system_barcode_id} | ${row.item_name || "-"} | ${row.title || "-"} | ${row.final_status}`,
+          `${index + 1}. URN:${row.urn || "-"} | Ref:${row.client_reference} | ${row.system_barcode_id} | ${row.item_name || "-"} | ${row.title || "-"} | Loc:${row.location || "-"} | ${row.final_status}`,
           { width: doc.page.width - 64 },
         );
     }

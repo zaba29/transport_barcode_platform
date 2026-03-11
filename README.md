@@ -17,12 +17,14 @@ Built with one codebase:
   - upload `.xlsx`
   - choose sheet
   - auto-detect headers
-  - map required + optional columns
-  - preview rows before import
-  - optional logistics mappings: `length`, `width`, `height`, `dimensions_raw`, `weight`, `quantity`, `packages`, `volume_cbm`
+  - flexible auto-mapping for Empty Slip / Storage / Loading List header styles
+  - URN-first operational mapping (`urn`) while keeping internal `system_barcode_id`
+  - preview rows before import with empty-column filtering + "Show all columns" toggle
+  - extended optional mappings: `package_number`, `warehouse_number`, `urn`, `location`, `italy_location`, `uk_location`, `packing`, `length`, `width`, `height`, `weight`, `quantity`, `volume_cbm`, `picked`, `loaded`, `comments`, `notes`, `external_barcode`
 - Item identifiers:
+  - `urn` (when mapped) as primary warehouse-facing reference
   - `client_reference` from mapped column
-  - generated unique `system_barcode_id` per project row
+  - generated unique `system_barcode_id` per project row (internal + barcode encoding)
 - Label generation:
   - Code 128 barcode
   - A4 printable PDF
@@ -39,7 +41,7 @@ Built with one codebase:
 - Dashboard and reconciliation:
   - progress cards
   - item status table
-  - optional dimensions/weight/package/volume columns
+  - URN/package/location-aware tables, scanner cards, labels, and exports
   - duplicate and unknown scan visibility
   - realtime refresh (Supabase Realtime)
 - Exports:
@@ -61,6 +63,7 @@ Built with one codebase:
 - `src/lib/domain` shared domain queries/types
 - `supabase/migrations/202603111040_init_transport_platform.sql` DB schema + RLS + scan RPC
 - `supabase/migrations/202603111230_v1_1_dimensions_unmark.sql` v1.1 logistics + unmark extension
+- `supabase/migrations/202603111430_v1_2_urn_and_operational_fields.sql` v1.2 URN + operational Excel fields
 - `scripts/seed-demo.mjs` demo seed from `.xlsx`
 
 ## Database / Migration Setup
@@ -69,6 +72,7 @@ Built with one codebase:
 2. Run SQL migration from:
    - `supabase/migrations/202603111040_init_transport_platform.sql`
    - `supabase/migrations/202603111230_v1_1_dimensions_unmark.sql`
+   - `supabase/migrations/202603111430_v1_2_urn_and_operational_fields.sql`
 3. Confirm bucket exists:
    - `excel-files` (private)
 4. In Supabase Auth, ensure email/password provider is enabled.

@@ -78,7 +78,9 @@ export function ItemsTable({ projectId, projectType, items, emptyLabel }: ItemsT
         <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
           <tr>
             <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">URN</th>
             <th className="px-3 py-2">Client Reference</th>
+            <th className="px-3 py-2">Package No.</th>
             <th className="px-3 py-2">Barcode ID</th>
             <th className="px-3 py-2">Item / Artist</th>
             <th className="px-3 py-2">Title</th>
@@ -116,7 +118,9 @@ export function ItemsTable({ projectId, projectType, items, emptyLabel }: ItemsT
                   <p className="mt-1 text-xs font-medium text-red-600">Duplicate reference</p>
                 ) : null}
               </td>
+              <td className="px-3 py-2 font-mono text-xs font-semibold text-zinc-900">{item.urn ?? "-"}</td>
               <td className="px-3 py-2 font-mono text-xs">{item.client_reference}</td>
+              <td className="px-3 py-2 text-xs">{item.package_number ?? "-"}</td>
               <td className="px-3 py-2 font-mono text-xs">{item.system_barcode_id}</td>
               <td className="px-3 py-2">{item.item_name ?? "-"}</td>
               <td className="px-3 py-2">{item.title ?? "-"}</td>
@@ -125,7 +129,7 @@ export function ItemsTable({ projectId, projectType, items, emptyLabel }: ItemsT
               <td className="px-3 py-2 text-xs">{formatDimensions(item)}</td>
               <td className="px-3 py-2">{item.weight ?? "-"}</td>
               <td className="px-3 py-2">{item.volume_cbm ?? "-"}</td>
-              <td className="px-3 py-2">{item.location ?? "-"}</td>
+              <td className="px-3 py-2">{item.location ?? item.italy_location ?? item.uk_location ?? "-"}</td>
               <td className="px-3 py-2 text-xs text-zinc-600">
                 {item.scanned_at ? new Date(item.scanned_at).toLocaleString() : "-"}
               </td>

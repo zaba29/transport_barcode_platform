@@ -24,6 +24,11 @@ export type Item = {
   project_id: string;
   system_barcode_id: string;
   client_reference: string;
+  urn: string | null;
+  package_number: string | null;
+  warehouse_number: string | null;
+  external_barcode: string | null;
+  artist: string | null;
   item_name: string | null;
   title: string | null;
   length: number | null;
@@ -35,6 +40,12 @@ export type Item = {
   packages: number | null;
   volume_cbm: number | null;
   location: string | null;
+  italy_location: string | null;
+  uk_location: string | null;
+  packing: string | null;
+  picked: string | null;
+  loaded: string | null;
+  comments: string | null;
   notes: string | null;
   status: ItemStatus;
   scanned_at: string | null;
@@ -49,7 +60,10 @@ export type ScanResult = {
   message?: string;
   item_id?: string;
   client_reference?: string;
+  urn?: string;
+  package_number?: string;
   item_name?: string;
   title?: string;
+  location?: string;
   scanned_at?: string;
 };

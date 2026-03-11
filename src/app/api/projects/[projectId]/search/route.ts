@@ -25,7 +25,7 @@ export async function GET(
   let query = supabase
     .from("items")
     .select(
-      "id, client_reference, item_name, title, length, width, height, dimensions_raw, weight, quantity, packages, volume_cbm, location, notes, status, scanned_at, system_barcode_id",
+      "id, client_reference, urn, package_number, item_name, title, length, width, height, dimensions_raw, weight, quantity, packages, volume_cbm, location, italy_location, uk_location, notes, status, scanned_at, system_barcode_id",
     )
     .eq("project_id", projectId)
     .limit(300);
@@ -42,9 +42,14 @@ export async function GET(
     query = query.or(
       [
         `client_reference.ilike.%${q}%`,
+        `urn.ilike.%${q}%`,
+        `package_number.ilike.%${q}%`,
+        `system_barcode_id.ilike.%${q}%`,
         `item_name.ilike.%${q}%`,
         `title.ilike.%${q}%`,
         `location.ilike.%${q}%`,
+        `italy_location.ilike.%${q}%`,
+        `uk_location.ilike.%${q}%`,
       ].join(","),
     );
   }
