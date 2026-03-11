@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { redirect } from "next/navigation";
 
 import type { Item, Project, ProjectProgress } from "@/lib/domain/types";
 import { createClient } from "@/lib/supabase/server";
@@ -68,6 +69,7 @@ export const getUserContext = cache(async (): Promise<UserContext> => {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
+    redirect("/login");
     throw new Error("Unauthorized");
   }
 
