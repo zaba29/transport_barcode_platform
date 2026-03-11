@@ -38,7 +38,7 @@ export function LabelsPanel({ projectId, isLoadingMode }: Props) {
     <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-zinc-900">Generate labels PDF</h2>
       <p className="text-sm text-zinc-600">
-        Each label encodes internal <code>system_barcode_id</code> and prints client reference text.
+        Each label always encodes internal <code>system_barcode_id</code>. When available, URN is printed prominently alongside customer ref and package number.
       </p>
 
       <div className="flex flex-wrap gap-2">
