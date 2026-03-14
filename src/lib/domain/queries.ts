@@ -238,7 +238,7 @@ export async function getProjectItems(projectId: string, filter: string = "all")
       ].join(","),
     )
     .eq("project_id", projectId)
-    .order("row_number", { ascending: true })
+    .order("client_reference", { ascending: true })
     .limit(5000);
 
   if (filter === "scanned") {
