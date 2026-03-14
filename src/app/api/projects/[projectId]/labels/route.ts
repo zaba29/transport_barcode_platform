@@ -39,7 +39,7 @@ export async function GET(
     .from("items")
     .select("system_barcode_id, client_reference, package_number, urn, item_name, title, status")
     .eq("project_id", projectId)
-    .order("row_number", { ascending: true });
+    .order("client_reference", { ascending: true });
 
   if (scope === "missing") {
     query = query.eq("status", "not_scanned");
@@ -50,7 +50,7 @@ export async function GET(
   }
 
   if (scope === "selected" && barcodes.length) {
-    query = query.in("system_barcode_id", barcodes);
+    query = query.in("urn", barcodes);
   }
 
   const { data: items, error } = await query.limit(10000);
@@ -91,7 +91,7 @@ export async function GET(
 
     const barcodePng = await bwipjs.toBuffer({
       bcid: "code128",
-      text: item.system_barcode_id,
+      text: item.urn ?? item.system_barcode_id,
       scale: 2,
       height: 12,
       includetext: false,
