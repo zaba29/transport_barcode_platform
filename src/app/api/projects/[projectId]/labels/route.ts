@@ -16,6 +16,15 @@ type LabelRow = {
   status: "not_scanned" | "scanned" | null;
 };
 
+type NormalizedLabelRow = {
+  system_barcode_id: string;
+  urn: string;
+  client_reference: string;
+  package_number: string;
+  item_name: string;
+  title: string;
+};
+
 const pageLayout = {
   margin: 24,
   columns: 3,
@@ -54,20 +63,22 @@ function parseRequest(request: Request) {
 
 function normalizeRow(row: LabelRow) {
   const systemBarcodeId = String(row.system_barcode_id ?? "").trim();
-  const clientReference = String(row.client_reference ?? "").trim();
+  const urn = String(row.urn ?? "").trim();
 
-  if (!systemBarcodeId) {
+  if (!systemBarcodeId || !urn) {
     return null;
   }
 
-  return {
+  const normalized: NormalizedLabelRow = {
     system_barcode_id: systemBarcodeId,
-    client_reference: clientReference,
-    package_number: row.package_number ? String(row.package_number) : null,
-    urn: row.urn ? String(row.urn) : null,
-    item_name: row.item_name ? String(row.item_name) : null,
-    title: row.title ? String(row.title) : null,
+    urn,
+    client_reference: row.client_reference ?? "",
+    package_number: row.package_number ?? "",
+    item_name: row.item_name ?? "",
+    title: row.title ?? "",
   };
+
+  return normalized;
 }
 
 export async function GET(
@@ -109,7 +120,7 @@ export async function GET(
       .from("items")
       .select("system_barcode_id, client_reference, package_number, urn, item_name, title, status")
       .eq("project_id", projectId)
-      .order("row_number", { ascending: true });
+      .order("client_reference", { ascending: true });
 
     if (scope === "missing") {
       query = query.eq("status", "not_scanned");
@@ -120,16 +131,19 @@ export async function GET(
     }
 
     if (scope === "selected") {
-      query = query.in("system_barcode_id", barcodes);
+      query = query.in("urn", barcodes);
     }
 
-    const { data, error } = await query.limit(10000);
+    const { data: items, error } = await query.limit(10000);
 
     if (error) {
       return jsonError(500, "Failed to fetch labels", error.message);
     }
 
-    const rows = ((data ?? []) as LabelRow[]).map(normalizeRow).filter((row) => row !== null);
+    const rows = ((items ?? []) as LabelRow[])
+      .filter((item) => item.urn)
+      .map(normalizeRow)
+      .filter((row) => row !== null);
 
     console.info("[labels] request", {
       projectId,
@@ -139,7 +153,7 @@ export async function GET(
     });
 
     if (!rows.length) {
-      return jsonError(400, "No labels to print", "No matching labels found for selected scope");
+      return new Response("No labels with URN found", { status: 400 });
     }
 
     const doc = new PDFDocument({ size: "A4", margin: pageLayout.margin });
@@ -166,10 +180,11 @@ export async function GET(
       const y = pageLayout.margin + row * (labelHeight + pageLayout.verticalGap);
 
       const item = rows[index];
+      const barcodeValue = item.urn ?? item.system_barcode_id;
 
       const barcodePng = await bwipjs.toBuffer({
         bcid: "code128",
-        text: item.system_barcode_id,
+        text: barcodeValue,
         scale: 2,
         height: 12,
         includetext: false,
@@ -179,39 +194,37 @@ export async function GET(
       doc.roundedRect(x, y, labelWidth, labelHeight, 4).lineWidth(0.5).stroke("#d4d4d8");
       doc.image(barcodePng, x + 8, y + 8, { fit: [labelWidth - 16, 34], align: "center" });
 
-      if (item.urn) {
-        doc.fontSize(11).font("Helvetica-Bold").text(`URN ${item.urn}`, x + 8, y + 44, {
-          width: labelWidth - 16,
-          lineBreak: false,
-        });
-      }
+      doc.fontSize(11).font("Helvetica-Bold").text(item.urn ?? "", x + 8, y + 44, {
+        width: labelWidth - 16,
+        lineBreak: false,
+      });
 
-      doc.fontSize(9).font("Helvetica").text(item.client_reference, x + 8, y + (item.urn ? 58 : 48), {
+      doc.fontSize(9).font("Helvetica").text(item.client_reference ?? "", x + 8, y + 58, {
         width: labelWidth - 16,
         lineBreak: false,
       });
 
       if (item.package_number) {
-        doc.fontSize(8).font("Helvetica").text(`Pkg ${item.package_number}`, x + 8, y + (item.urn ? 70 : 60), {
+        doc.fontSize(8).font("Helvetica").text(`Pkg ${item.package_number}`, x + 8, y + 70, {
           width: labelWidth - 16,
           lineBreak: false,
         });
       }
 
-      doc.fontSize(7).font("Helvetica-Bold").text(item.system_barcode_id, x + 8, y + (item.urn ? 81 : 71), {
+      doc.fontSize(7).font("Helvetica-Bold").text(item.urn ?? item.system_barcode_id, x + 8, y + 81, {
         width: labelWidth - 16,
         align: "left",
       });
 
       if (item.item_name) {
-        doc.fontSize(8).font("Helvetica").text(item.item_name, x + 8, y + (item.urn ? 91 : 81), {
+        doc.fontSize(8).font("Helvetica").text(item.item_name ?? "", x + 8, y + 91, {
           width: labelWidth - 16,
           lineBreak: false,
         });
       }
 
       if (item.title) {
-        doc.fontSize(8).font("Helvetica").text(item.title, x + 8, y + (item.urn ? 101 : 91), {
+        doc.fontSize(8).font("Helvetica").text(item.title ?? "", x + 8, y + 101, {
           width: labelWidth - 16,
           lineBreak: false,
         });
