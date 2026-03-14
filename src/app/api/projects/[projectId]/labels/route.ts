@@ -1,9 +1,20 @@
 import bwipjs from "bwip-js";
 import PDFDocument from "pdfkit";
+import { NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+
+type LabelRow = {
+  system_barcode_id: string | null;
+  client_reference: string | null;
+  package_number: string | null;
+  urn: string | null;
+  item_name: string | null;
+  title: string | null;
+  status: "not_scanned" | "scanned" | null;
+};
 
 const pageLayout = {
   margin: 24,
@@ -13,21 +24,11 @@ const pageLayout = {
   verticalGap: 8,
 };
 
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ projectId: string }> },
-) {
-  const { projectId } = await context.params;
-  const supabase = await createClient();
+function jsonError(status: number, error: string, details?: string) {
+  return NextResponse.json({ error, details }, { status });
+}
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
+function parseRequest(request: Request) {
   const url = new URL(request.url);
   const scope = url.searchParams.get("scope") ?? "all";
   const barcodes = (url.searchParams.get("barcodes") ?? "")
@@ -35,124 +36,211 @@ export async function GET(
     .map((value) => value.trim())
     .filter(Boolean);
 
-  let query = supabase
-    .from("items")
-    .select("system_barcode_id, client_reference, package_number, urn, item_name, title, status")
-    .eq("project_id", projectId)
-    .order("row_number", { ascending: true });
-
-  if (scope === "missing") {
-    query = query.eq("status", "not_scanned");
+  if (!["all", "missing", "scanned", "selected"].includes(scope)) {
+    return { error: jsonError(400, "Invalid scope", `Scope '${scope}' is not supported`) };
   }
 
-  if (scope === "scanned") {
-    query = query.eq("status", "scanned");
+  if (scope === "selected" && !barcodes.length) {
+    return { error: jsonError(400, "No barcodes provided", "Provide at least one barcode for selected scope") };
   }
 
-  if (scope === "selected" && barcodes.length) {
-    query = query.in("system_barcode_id", barcodes);
+  const invalidBarcode = barcodes.find((value) => value.length > 120);
+  if (invalidBarcode) {
+    return { error: jsonError(400, "Invalid barcode value", `Barcode '${invalidBarcode}' is too long`) };
   }
 
-  const { data: items, error } = await query.limit(10000);
+  return { scope, barcodes } as const;
+}
 
-  if (error) {
-    return new Response(error.message, { status: 500 });
+function normalizeRow(row: LabelRow) {
+  const systemBarcodeId = String(row.system_barcode_id ?? "").trim();
+  const clientReference = String(row.client_reference ?? "").trim();
+
+  if (!systemBarcodeId) {
+    return null;
   }
 
-  const rows = items ?? [];
-  if (!rows.length) {
-    return new Response("No labels to print", { status: 400 });
-  }
+  return {
+    system_barcode_id: systemBarcodeId,
+    client_reference: clientReference,
+    package_number: row.package_number ? String(row.package_number) : null,
+    urn: row.urn ? String(row.urn) : null,
+    item_name: row.item_name ? String(row.item_name) : null,
+    title: row.title ? String(row.title) : null,
+  };
+}
 
-  const doc = new PDFDocument({ size: "A4", margin: pageLayout.margin });
-  const chunks: Buffer[] = [];
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ projectId: string }> },
+) {
+  const { projectId } = await context.params;
 
-  doc.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+  try {
+    const supabase = await createClient();
 
-  const pageWidth = doc.page.width - pageLayout.margin * 2;
-  const pageHeight = doc.page.height - pageLayout.margin * 2;
-  const labelWidth = (pageWidth - pageLayout.horizontalGap * (pageLayout.columns - 1)) / pageLayout.columns;
-  const labelHeight = (pageHeight - pageLayout.verticalGap * (pageLayout.rows - 1)) / pageLayout.rows;
-  const labelsPerPage = pageLayout.columns * pageLayout.rows;
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-  for (let index = 0; index < rows.length; index += 1) {
-    if (index > 0 && index % labelsPerPage === 0) {
-      doc.addPage();
+    if (authError || !user) {
+      return jsonError(401, "Unauthorized");
     }
 
-    const localIndex = index % labelsPerPage;
-    const row = Math.floor(localIndex / pageLayout.columns);
-    const column = localIndex % pageLayout.columns;
+    const parsed = parseRequest(request);
+    if ("error" in parsed) {
+      return parsed.error;
+    }
 
-    const x = pageLayout.margin + column * (labelWidth + pageLayout.horizontalGap);
-    const y = pageLayout.margin + row * (labelHeight + pageLayout.verticalGap);
+    const { scope, barcodes } = parsed;
 
-    const item = rows[index];
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", projectId)
+      .maybeSingle();
 
-    const barcodePng = await bwipjs.toBuffer({
-      bcid: "code128",
-      text: item.system_barcode_id,
-      scale: 2,
-      height: 12,
-      includetext: false,
-      backgroundcolor: "FFFFFF",
+    if (projectError || !project) {
+      return jsonError(404, "Project not found", projectError?.message);
+    }
+
+    let query = supabase
+      .from("items")
+      .select("system_barcode_id, client_reference, package_number, urn, item_name, title, status")
+      .eq("project_id", projectId)
+      .order("row_number", { ascending: true });
+
+    if (scope === "missing") {
+      query = query.eq("status", "not_scanned");
+    }
+
+    if (scope === "scanned") {
+      query = query.eq("status", "scanned");
+    }
+
+    if (scope === "selected") {
+      query = query.in("system_barcode_id", barcodes);
+    }
+
+    const { data, error } = await query.limit(10000);
+
+    if (error) {
+      return jsonError(500, "Failed to fetch labels", error.message);
+    }
+
+    const rows = ((data ?? []) as LabelRow[]).map(normalizeRow).filter((row) => row !== null);
+
+    console.info("[labels] request", {
+      projectId,
+      scope,
+      selectedBarcodeCount: barcodes.length,
+      labelsFound: rows.length,
     });
 
-    doc.roundedRect(x, y, labelWidth, labelHeight, 4).lineWidth(0.5).stroke("#d4d4d8");
-    doc.image(barcodePng, x + 8, y + 8, { fit: [labelWidth - 16, 34], align: "center" });
+    if (!rows.length) {
+      return jsonError(400, "No labels to print", "No matching labels found for selected scope");
+    }
 
-    if (item.urn) {
-      doc.fontSize(11).font("Helvetica-Bold").text(`URN ${item.urn}`, x + 8, y + 44, {
+    const doc = new PDFDocument({ size: "A4", margin: pageLayout.margin });
+    const chunks: Buffer[] = [];
+
+    doc.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+
+    const pageWidth = doc.page.width - pageLayout.margin * 2;
+    const pageHeight = doc.page.height - pageLayout.margin * 2;
+    const labelWidth = (pageWidth - pageLayout.horizontalGap * (pageLayout.columns - 1)) / pageLayout.columns;
+    const labelHeight = (pageHeight - pageLayout.verticalGap * (pageLayout.rows - 1)) / pageLayout.rows;
+    const labelsPerPage = pageLayout.columns * pageLayout.rows;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      if (index > 0 && index % labelsPerPage === 0) {
+        doc.addPage();
+      }
+
+      const localIndex = index % labelsPerPage;
+      const row = Math.floor(localIndex / pageLayout.columns);
+      const column = localIndex % pageLayout.columns;
+
+      const x = pageLayout.margin + column * (labelWidth + pageLayout.horizontalGap);
+      const y = pageLayout.margin + row * (labelHeight + pageLayout.verticalGap);
+
+      const item = rows[index];
+
+      const barcodePng = await bwipjs.toBuffer({
+        bcid: "code128",
+        text: item.system_barcode_id,
+        scale: 2,
+        height: 12,
+        includetext: false,
+        backgroundcolor: "FFFFFF",
+      });
+
+      doc.roundedRect(x, y, labelWidth, labelHeight, 4).lineWidth(0.5).stroke("#d4d4d8");
+      doc.image(barcodePng, x + 8, y + 8, { fit: [labelWidth - 16, 34], align: "center" });
+
+      if (item.urn) {
+        doc.fontSize(11).font("Helvetica-Bold").text(`URN ${item.urn}`, x + 8, y + 44, {
+          width: labelWidth - 16,
+          lineBreak: false,
+        });
+      }
+
+      doc.fontSize(9).font("Helvetica").text(item.client_reference, x + 8, y + (item.urn ? 58 : 48), {
         width: labelWidth - 16,
         lineBreak: false,
       });
+
+      if (item.package_number) {
+        doc.fontSize(8).font("Helvetica").text(`Pkg ${item.package_number}`, x + 8, y + (item.urn ? 70 : 60), {
+          width: labelWidth - 16,
+          lineBreak: false,
+        });
+      }
+
+      doc.fontSize(7).font("Helvetica-Bold").text(item.system_barcode_id, x + 8, y + (item.urn ? 81 : 71), {
+        width: labelWidth - 16,
+        align: "left",
+      });
+
+      if (item.item_name) {
+        doc.fontSize(8).font("Helvetica").text(item.item_name, x + 8, y + (item.urn ? 91 : 81), {
+          width: labelWidth - 16,
+          lineBreak: false,
+        });
+      }
+
+      if (item.title) {
+        doc.fontSize(8).font("Helvetica").text(item.title, x + 8, y + (item.urn ? 101 : 91), {
+          width: labelWidth - 16,
+          lineBreak: false,
+        });
+      }
     }
 
-    doc.fontSize(9).font("Helvetica").text(item.client_reference ?? "", x + 8, y + (item.urn ? 58 : 48), {
-      width: labelWidth - 16,
-      lineBreak: false,
+    doc.end();
+
+    await new Promise<void>((resolve) => {
+      doc.on("end", () => resolve());
     });
 
-    if (item.package_number) {
-      doc.fontSize(8).font("Helvetica").text(`Pkg ${item.package_number}`, x + 8, y + (item.urn ? 70 : 60), {
-        width: labelWidth - 16,
-        lineBreak: false,
-      });
-    }
+    const body = Buffer.concat(chunks);
 
-    doc.fontSize(7).font("Helvetica-Bold").text(item.system_barcode_id, x + 8, y + (item.urn ? 81 : 71), {
-      width: labelWidth - 16,
-      align: "left",
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="labels-${projectId}.pdf"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    const details = error instanceof Error ? error.stack ?? error.message : String(error);
+    console.error("[labels] PDF generation failed", {
+      projectId,
+      details,
+      message: error instanceof Error ? error.message : "Unknown error",
     });
 
-    if (item.item_name) {
-      doc.fontSize(8).text(item.item_name, x + 8, y + (item.urn ? 91 : 81), {
-        width: labelWidth - 16,
-        lineBreak: false,
-      });
-    }
-
-    if (item.title) {
-      doc.fontSize(8).text(item.title, x + 8, y + (item.urn ? 101 : 91), {
-        width: labelWidth - 16,
-        lineBreak: false,
-      });
-    }
+    return jsonError(500, "Label PDF generation failed", error instanceof Error ? error.message : String(error));
   }
-
-  doc.end();
-
-  await new Promise<void>((resolve) => {
-    doc.on("end", () => resolve());
-  });
-
-  const body = Buffer.concat(chunks);
-
-  return new Response(body, {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="labels-${projectId}.pdf"`,
-      "Cache-Control": "no-store",
-    },
-  });
 }
