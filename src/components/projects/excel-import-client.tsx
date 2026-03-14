@@ -35,6 +35,10 @@ const previewPriority = [
   "location",
 ];
 
+
+const MAX_IMPORT_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_IMPORT_FILE_SIZE_LABEL = "4MB";
+
 function detectHeaderRow(rows: Array<Array<string | number | boolean | null | undefined>>) {
   let bestIndex = 0;
   let bestScore = -1;
@@ -105,6 +109,13 @@ async function parseImportResponse(response: Response) {
 
   if (!response.ok) {
     const details = rawBody.trim() || "No response body";
+
+    if (response.status === 413 || details.toLowerCase().includes("request entity too large")) {
+      throw new Error(
+        `Import failed (${response.status}): Uploaded file is too large for server processing. Reduce file size or split it into smaller sheets (max ${MAX_IMPORT_FILE_SIZE_LABEL} recommended).`,
+      );
+    }
+
     throw new Error(`Import failed (${response.status}): ${details}`);
   }
 
@@ -183,6 +194,14 @@ export function ExcelImportClient({ projectId }: Props) {
       return;
     }
 
+    if (selectedFile.size > MAX_IMPORT_FILE_SIZE_BYTES) {
+      setError(
+        `Selected file is too large (${(selectedFile.size / 1024 / 1024).toFixed(1)}MB). Please upload a file up to ${MAX_IMPORT_FILE_SIZE_LABEL} or split it into smaller sheets.`,
+      );
+      setFile(null);
+      return;
+    }
+
     const buffer = await selectedFile.arrayBuffer();
     const parsedWorkbook = XLSX.read(buffer, { type: "array" });
     const firstSheet = parsedWorkbook.SheetNames[0] ?? "";
@@ -193,6 +212,11 @@ export function ExcelImportClient({ projectId }: Props) {
 
   async function handleImport() {
     if (!file || !workbook || !sheetName || !parsed) {
+      return;
+    }
+
+    if (file.size > MAX_IMPORT_FILE_SIZE_BYTES) {
+      setError(`File is too large for import. Keep the upload at or below ${MAX_IMPORT_FILE_SIZE_LABEL}.`);
       return;
     }
 
