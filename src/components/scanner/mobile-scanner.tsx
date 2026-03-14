@@ -10,6 +10,9 @@ type ScanResponse = {
   message?: string;
   item_id?: string;
   client_reference?: string;
+  urn?: string;
+  package_number?: string;
+  location?: string | null;
   item_name?: string;
   title?: string;
   scanned_at?: string | null;
@@ -18,6 +21,8 @@ type ScanResponse = {
 type ListItem = {
   id: string;
   client_reference: string;
+  urn: string | null;
+  package_number: string | null;
   item_name: string | null;
   title: string | null;
   length: number | null;
@@ -29,6 +34,8 @@ type ListItem = {
   packages: number | null;
   volume_cbm: number | null;
   location: string | null;
+  italy_location: string | null;
+  uk_location: string | null;
   notes: string | null;
   status: "not_scanned" | "scanned";
   scanned_at: string | null;
@@ -321,11 +328,18 @@ export function MobileScanner({
         </p>
         <p className="mt-2 text-sm font-mono">{lastScannedCode || "-"}</p>
         {lastResult?.client_reference ? (
-          <p className="mt-2 text-sm">
-            {lastResult.client_reference}
-            {lastResult.item_name ? ` | ${lastResult.item_name}` : ""}
-            {lastResult.title ? ` | ${lastResult.title}` : ""}
-          </p>
+          <div className="mt-2 space-y-1 text-sm">
+            {lastResult.urn ? <p className="font-mono text-base font-semibold">URN: {lastResult.urn}</p> : null}
+            <p>
+              {lastResult.client_reference}
+              {lastResult.package_number ? ` | Pkg: ${lastResult.package_number}` : ""}
+              {lastResult.location ? ` | Loc: ${lastResult.location}` : ""}
+            </p>
+            <p>
+              {lastResult.item_name ? `${lastResult.item_name}` : "-"}
+              {lastResult.title ? ` | ${lastResult.title}` : ""}
+            </p>
+          </div>
         ) : null}
         {lastResult?.scanned_at ? (
           <p className="mt-1 text-xs">Original timestamp: {new Date(lastResult.scanned_at).toLocaleString()}</p>
@@ -385,13 +399,14 @@ export function MobileScanner({
             const dimensions = formatDimensions(item);
             return (
               <div key={item.id} className="rounded-lg border border-zinc-200 p-3">
+                <p className="font-mono text-xs text-zinc-700">URN: {item.urn ?? "-"}</p>
                 <p className="font-mono text-xs text-zinc-700">{item.client_reference}</p>
                 <p className="text-sm text-zinc-900">
                   {item.item_name ?? "-"}
                   {item.title ? ` | ${item.title}` : ""}
                 </p>
                 <p className="text-xs text-zinc-500">
-                  {item.location ? `Loc: ${item.location}` : "No location"}
+                  {(item.location ?? item.italy_location ?? item.uk_location) ? `Loc: ${item.location ?? item.italy_location ?? item.uk_location}` : "No location"}
                   {item.notes ? ` | ${item.notes}` : ""}
                 </p>
                 <p className="mt-1 text-xs text-zinc-600">
@@ -431,13 +446,14 @@ export function MobileScanner({
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search reference, artist/item, title"
+          placeholder="Search URN, reference, location, title"
           className="mt-2 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
         />
         <div className="mt-3 max-h-56 space-y-2 overflow-auto">
           {searchResults.map((item) => (
             <div key={item.id} className="rounded-lg border border-zinc-200 p-3">
-              <p className="font-mono text-xs text-zinc-700">{item.client_reference}</p>
+              <p className="font-mono text-xs text-zinc-700">URN: {item.urn ?? "-"}</p>
+                <p className="font-mono text-xs text-zinc-700">{item.client_reference}</p>
               <p className="text-sm text-zinc-900">
                 {item.item_name ?? "-"}
                 {item.title ? ` | ${item.title}` : ""}

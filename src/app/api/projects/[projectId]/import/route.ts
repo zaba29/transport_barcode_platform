@@ -2,26 +2,8 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { MappingState } from "@/lib/import/header-mapping";
 import { createClient } from "@/lib/supabase/server";
-
-type MappingPayload = {
-  client_reference: string;
-  item_name?: string;
-  title?: string;
-  length?: string;
-  width?: string;
-  height?: string;
-  dimensions_raw?: string;
-  weight?: string;
-  quantity?: string;
-  packages?: string;
-  volume_cbm?: string;
-  location?: string;
-  notes?: string;
-  client?: string;
-  consignee?: string;
-  vehicle_route_reference?: string;
-};
 
 function sanitizeFilename(filename: string) {
   return filename.toLowerCase().replace(/[^a-z0-9._-]/g, "-");
@@ -48,6 +30,23 @@ function toNullableInteger(value: unknown) {
   return parsed;
 }
 
+function jsonError(
+  status: number,
+  message: string,
+  details?: string,
+  extra?: Record<string, unknown>,
+) {
+  return NextResponse.json({ error: message, details, ...extra }, { status });
+}
+
+function readMappedString(mapping: MappingState, key: keyof MappingState, row: Record<string, unknown>) {
+  return mapping[key] ? toNullableString(row[mapping[key]]) : null;
+}
+
+function readMappedNumber(mapping: MappingState, key: keyof MappingState, row: Record<string, unknown>) {
+  return mapping[key] ? toNullableNumber(row[mapping[key]]) : null;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ projectId: string }> },
@@ -62,7 +61,7 @@ export async function POST(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return jsonError(401, "Unauthorized");
     }
 
     const { data: project, error: projectError } = await supabase
@@ -72,7 +71,7 @@ export async function POST(
       .single();
 
     if (projectError || !project) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+      return jsonError(404, "Project not found");
     }
 
     const formData = await request.formData();
@@ -82,21 +81,26 @@ export async function POST(
     const mappingRaw = formData.get("mapping");
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Missing file" }, { status: 400 });
+      return jsonError(400, "Missing file");
     }
 
     if (!sheetName) {
-      return NextResponse.json({ error: "Missing sheetName" }, { status: 400 });
+      return jsonError(400, "Missing sheetName");
     }
 
     if (typeof mappingRaw !== "string") {
-      return NextResponse.json({ error: "Missing mapping payload" }, { status: 400 });
+      return jsonError(400, "Missing mapping payload");
     }
 
-    const mapping = JSON.parse(mappingRaw) as MappingPayload;
+    let mapping: MappingState;
+    try {
+      mapping = JSON.parse(mappingRaw) as MappingState;
+    } catch {
+      return jsonError(400, "Invalid mapping payload", "JSON.parse(mapping) failed", { code: "INVALID_MAPPING_JSON" });
+    }
 
     if (!mapping.client_reference) {
-      return NextResponse.json({ error: "Reference column mapping is required" }, { status: 400 });
+      return jsonError(400, "Customer Ref mapping is required");
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
@@ -104,7 +108,7 @@ export async function POST(
     const sheet = workbook.Sheets[sheetName];
 
     if (!sheet) {
-      return NextResponse.json({ error: "Selected sheet not found in workbook" }, { status: 400 });
+      return jsonError(400, "Selected sheet not found in workbook");
     }
 
     const rowMatrix = XLSX.utils.sheet_to_json(sheet, {
@@ -177,23 +181,38 @@ export async function POST(
         row_number: index + 1,
         system_barcode_id: systemBarcodeId,
         client_reference: clientReference,
-        item_name: mapping.item_name ? toNullableString(fullRow[mapping.item_name]) : null,
-        title: mapping.title ? toNullableString(fullRow[mapping.title]) : null,
-        length: mapping.length ? toNullableNumber(fullRow[mapping.length]) : null,
-        width: mapping.width ? toNullableNumber(fullRow[mapping.width]) : null,
-        height: mapping.height ? toNullableNumber(fullRow[mapping.height]) : null,
-        dimensions_raw: mapping.dimensions_raw ? toNullableString(fullRow[mapping.dimensions_raw]) : null,
-        weight: mapping.weight ? toNullableNumber(fullRow[mapping.weight]) : null,
-        quantity: mapping.quantity ? toNullableNumber(fullRow[mapping.quantity]) : null,
+        package_number: readMappedString(mapping, "package_number", fullRow),
+        warehouse_number: readMappedString(mapping, "warehouse_number", fullRow),
+        urn: readMappedString(mapping, "urn", fullRow),
+        artist: readMappedString(mapping, "artist", fullRow),
+        item_name: readMappedString(mapping, "item_name", fullRow),
+        title: readMappedString(mapping, "title", fullRow),
+        length: readMappedNumber(mapping, "length", fullRow),
+        width: readMappedNumber(mapping, "width", fullRow),
+        height: readMappedNumber(mapping, "height", fullRow),
+        dimensions_raw: readMappedString(mapping, "dimensions_raw", fullRow),
+        weight: readMappedNumber(mapping, "weight", fullRow),
+        quantity: readMappedNumber(mapping, "quantity", fullRow),
         packages: mapping.packages ? toNullableInteger(fullRow[mapping.packages]) : null,
-        volume_cbm: mapping.volume_cbm ? toNullableNumber(fullRow[mapping.volume_cbm]) : null,
-        location: mapping.location ? toNullableString(fullRow[mapping.location]) : null,
-        notes: mapping.notes ? toNullableString(fullRow[mapping.notes]) : null,
-        client: mapping.client ? toNullableString(fullRow[mapping.client]) : null,
-        consignee: mapping.consignee ? toNullableString(fullRow[mapping.consignee]) : null,
-        vehicle_route_reference: mapping.vehicle_route_reference
-          ? toNullableString(fullRow[mapping.vehicle_route_reference])
-          : null,
+        volume_cbm: readMappedNumber(mapping, "volume_cbm", fullRow),
+        location:
+          readMappedString(mapping, "location", fullRow) ??
+          readMappedString(mapping, "italy_location", fullRow) ??
+          readMappedString(mapping, "uk_location", fullRow),
+        italy_location: readMappedString(mapping, "italy_location", fullRow),
+        uk_location: readMappedString(mapping, "uk_location", fullRow),
+        packing: readMappedString(mapping, "packing", fullRow),
+        notes: readMappedString(mapping, "notes", fullRow),
+        comments: readMappedString(mapping, "comments", fullRow),
+        external_barcode: readMappedString(mapping, "external_barcode", fullRow),
+        picked: readMappedString(mapping, "picked", fullRow),
+        loaded: readMappedString(mapping, "loaded", fullRow),
+        checked: readMappedString(mapping, "checked", fullRow),
+        date: readMappedString(mapping, "date", fullRow),
+        client: readMappedString(mapping, "client", fullRow),
+        job_number: readMappedString(mapping, "job_number", fullRow),
+        consignee: readMappedString(mapping, "consignee", fullRow),
+        vehicle_route_reference: readMappedString(mapping, "vehicle_route_reference", fullRow),
         full_row_json: fullRow,
         status: "not_scanned",
         is_duplicate_reference: false,
@@ -201,7 +220,15 @@ export async function POST(
     }
 
     if (!itemRows.length) {
-      return NextResponse.json({ error: "No valid rows found after mapping" }, { status: 400 });
+      return jsonError(
+        400,
+        "No valid rows found after mapping",
+        "No rows with mapped Customer Ref were detected",
+        {
+          code: "NO_VALID_ROWS",
+          hint: "Ensure Customer Ref is mapped to a populated column",
+        },
+      );
     }
 
     const duplicateRefs = [...referenceCount.entries()]
@@ -278,11 +305,14 @@ export async function POST(
       storagePath,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unexpected import error",
-      },
-      { status: 500 },
+    const details = error instanceof Error ? error.stack ?? error.message : String(error);
+    console.error("[import] Import endpoint failure", details);
+
+    return jsonError(
+      500,
+      "Import failed",
+      error instanceof Error ? error.message : "Unexpected import error",
+      { code: "IMPORT_FAILED" },
     );
   }
 }

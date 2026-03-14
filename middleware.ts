@@ -27,9 +27,10 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthPath = pathname.startsWith("/login") || pathname.startsWith("/auth");
+  const isApiPath = pathname.startsWith("/api");
   const isPublicAsset = pathname.startsWith("/_next") || pathname.includes(".");
 
-  if (!user && !isAuthPath && !isPublicAsset) {
+  if (!user && !isAuthPath && !isApiPath && !isPublicAsset) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);

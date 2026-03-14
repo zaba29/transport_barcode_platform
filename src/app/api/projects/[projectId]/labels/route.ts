@@ -37,7 +37,7 @@ export async function GET(
 
   let query = supabase
     .from("items")
-    .select("system_barcode_id, client_reference, item_name, title, status")
+    .select("system_barcode_id, client_reference, package_number, urn, item_name, title, status")
     .eq("project_id", projectId)
     .order("row_number", { ascending: true });
 
@@ -101,25 +101,39 @@ export async function GET(
     doc.roundedRect(x, y, labelWidth, labelHeight, 4).lineWidth(0.5).stroke("#d4d4d8");
     doc.image(barcodePng, x + 8, y + 8, { fit: [labelWidth - 16, 34], align: "center" });
 
-    doc.fontSize(8).font("Helvetica-Bold").text(item.system_barcode_id, x + 8, y + 44, {
-      width: labelWidth - 16,
-      align: "left",
-    });
+    if (item.urn) {
+      doc.fontSize(11).font("Helvetica-Bold").text(`URN ${item.urn}`, x + 8, y + 44, {
+        width: labelWidth - 16,
+        lineBreak: false,
+      });
+    }
 
-    doc.fontSize(9).font("Helvetica").text(item.client_reference ?? "", x + 8, y + 57, {
+    doc.fontSize(9).font("Helvetica").text(item.client_reference ?? "", x + 8, y + (item.urn ? 58 : 48), {
       width: labelWidth - 16,
       lineBreak: false,
     });
 
+    if (item.package_number) {
+      doc.fontSize(8).font("Helvetica").text(`Pkg ${item.package_number}`, x + 8, y + (item.urn ? 70 : 60), {
+        width: labelWidth - 16,
+        lineBreak: false,
+      });
+    }
+
+    doc.fontSize(7).font("Helvetica-Bold").text(item.system_barcode_id, x + 8, y + (item.urn ? 81 : 71), {
+      width: labelWidth - 16,
+      align: "left",
+    });
+
     if (item.item_name) {
-      doc.fontSize(8).text(item.item_name, x + 8, y + 69, {
+      doc.fontSize(8).text(item.item_name, x + 8, y + (item.urn ? 91 : 81), {
         width: labelWidth - 16,
         lineBreak: false,
       });
     }
 
     if (item.title) {
-      doc.fontSize(8).text(item.title, x + 8, y + 79, {
+      doc.fontSize(8).text(item.title, x + 8, y + (item.urn ? 101 : 91), {
         width: labelWidth - 16,
         lineBreak: false,
       });
