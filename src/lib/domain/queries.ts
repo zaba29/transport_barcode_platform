@@ -200,66 +200,102 @@ export async function getProjectById(projectId: string) {
 export async function getProjectItems(projectId: string, filter: string = "all") {
   const supabase = await createClient();
 
-  let query = supabase
-    .from("items")
-    .select(
-      [
-        "id",
-        "project_id",
-        "system_barcode_id",
-        "client_reference",
-        "urn",
-        "package_number",
-        "warehouse_number",
-        "external_barcode",
-        "artist",
-        "item_name",
-        "title",
-        "length",
-        "width",
-        "height",
-        "dimensions_raw",
-        "weight",
-        "quantity",
-        "packages",
-        "volume_cbm",
-        "location",
-        "italy_location",
-        "uk_location",
-        "packing",
-        "picked",
-        "loaded",
-        "comments",
-        "notes",
-        "status",
-        "scanned_at",
-        "scanned_by",
-        "is_duplicate_reference",
-      ].join(","),
-    )
-    .eq("project_id", projectId)
-    .order("row_number", { ascending: true })
-    .limit(5000);
+  const extendedSelect = [
+    "id",
+    "project_id",
+    "system_barcode_id",
+    "client_reference",
+    "urn",
+    "package_number",
+    "warehouse_number",
+    "external_barcode",
+    "artist",
+    "item_name",
+    "title",
+    "length",
+    "width",
+    "height",
+    "dimensions_raw",
+    "weight",
+    "quantity",
+    "packages",
+    "volume_cbm",
+    "location",
+    "italy_location",
+    "uk_location",
+    "packing",
+    "picked",
+    "loaded",
+    "comments",
+    "notes",
+    "status",
+    "scanned_at",
+    "scanned_by",
+    "is_duplicate_reference",
+  ].join(",");
 
-  if (filter === "scanned") {
-    query = query.eq("status", "scanned");
+  const legacySelect = [
+    "id",
+    "project_id",
+    "system_barcode_id",
+    "client_reference",
+    "item_name",
+    "title",
+    "length",
+    "width",
+    "height",
+    "dimensions_raw",
+    "weight",
+    "quantity",
+    "packages",
+    "volume_cbm",
+    "location",
+    "notes",
+    "status",
+    "scanned_at",
+    "scanned_by",
+    "is_duplicate_reference",
+  ].join(",");
+
+  async function runQuery(selectClause: string) {
+    let query = supabase
+      .from("items")
+      .select(selectClause)
+      .eq("project_id", projectId)
+      .order("row_number", { ascending: true })
+      .limit(5000);
+
+    if (filter === "scanned") {
+      query = query.eq("status", "scanned");
+    }
+
+    if (filter === "missing") {
+      query = query.eq("status", "not_scanned");
+    }
+
+    if (filter === "duplicates") {
+      query = query.eq("is_duplicate_reference", true);
+    }
+
+    return query;
   }
 
-  if (filter === "missing") {
-    query = query.eq("status", "not_scanned");
+  let result = await runQuery(extendedSelect);
+
+  if (result.error && result.error.message.toLowerCase().includes("column") && result.error.message.toLowerCase().includes("does not exist")) {
+    console.warn("[queries] Falling back to legacy items select because newer columns are missing", {
+      projectId,
+      filter,
+      details: result.error.message,
+    });
+    result = await runQuery(legacySelect);
   }
 
-  if (filter === "duplicates") {
-    query = query.eq("is_duplicate_reference", true);
+  if (result.error) {
+    throw result.error;
   }
 
-  const { data, error } = await query;
-
-  if (error) {
-    throw error;
-  }
-
-  return ((data ?? []) as unknown[]).map((row) => mapItem(row as Record<string, unknown>));
+  return ((result.data ?? []) as unknown[]).map((row) => mapItem(row as Record<string, unknown>));
 }
 
 export async function getUnknownScans(projectId: string) {
